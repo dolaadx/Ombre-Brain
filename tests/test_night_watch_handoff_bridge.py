@@ -2,6 +2,7 @@ import json
 
 import pytest
 
+from bucket_manager import BucketManager
 from web import night_watch_handoff
 
 
@@ -172,3 +173,42 @@ async def test_bridge_enforces_monotonic_revision_and_idempotency(monkeypatch):
     second = await call(Request(payload(revision=2, updated_at="2026-09-01T00:00:00-07:00")))
     assert second.status_code == 200
     assert manager.updated_ids == [BUCKET_ID, BUCKET_ID]
+
+
+@pytest.mark.asyncio
+async def test_real_bucket_manager_leaves_every_non_target_bucket_unchanged(
+    monkeypatch, test_config
+):
+    manager = BucketManager(test_config, embedding_engine=None)
+    target_id = await manager.create(
+        "legacy bootstrap template",
+        name="night_watch_morning_handoff",
+        domain=["night_watch"],
+        bucket_id_override=BUCKET_ID,
+        defer_derived_index=True,
+    )
+    assert target_id == BUCKET_ID
+    assert await manager.update(BUCKET_ID, dont_surface=True)
+    await manager.create(
+        "main memory must stay byte-for-byte stable",
+        name="ordinary_memory",
+        domain=["life"],
+        bucket_id_override="ordinary-main-bucket",
+        defer_derived_index=True,
+    )
+    before = {
+        bucket["id"]: json.dumps(bucket, ensure_ascii=False, sort_keys=True)
+        for bucket in await manager.list_all(include_archive=True)
+        if bucket["id"] != BUCKET_ID
+    }
+
+    call, _ = handler(monkeypatch, manager)
+    response = await call(Request(payload()))
+
+    assert response.status_code == 200
+    after = {
+        bucket["id"]: json.dumps(bucket, ensure_ascii=False, sort_keys=True)
+        for bucket in await manager.list_all(include_archive=True)
+        if bucket["id"] != BUCKET_ID
+    }
+    assert after == before

@@ -188,6 +188,13 @@ def _current_revision(bucket: dict[str, Any]) -> int:
         return 0
 
 
+def _has_expected_bucket_name(metadata: dict[str, Any]) -> bool:
+    name = metadata.get("name")
+    return isinstance(name, str) and (
+        name == _EXPECTED_BUCKET_NAME or name.endswith(f" {_EXPECTED_BUCKET_NAME}")
+    )
+
+
 def register(mcp) -> None:
     @mcp.custom_route(_ROUTE, methods=["POST"])
     async def night_watch_morning_handoff(request: Request) -> Response:
@@ -210,7 +217,7 @@ def register(mcp) -> None:
         metadata = (bucket or {}).get("metadata") or {}
         if (
             not bucket
-            or metadata.get("name") != _EXPECTED_BUCKET_NAME
+            or not _has_expected_bucket_name(metadata)
             or metadata.get("dont_surface") is not True
         ):
             return JSONResponse({"error": "configured_bucket_mismatch"}, status_code=409)
